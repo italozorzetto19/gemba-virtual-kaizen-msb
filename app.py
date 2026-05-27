@@ -40,6 +40,11 @@ SIPOC_COLUMNS = [
     "supplier",
     "input",
     "processo_atual",
+    "etapa_1",
+    "etapa_2",
+    "etapa_3",
+    "etapa_4",
+    "etapa_5",
     "output_esperado",
     "customer",
     "dor_atual",
@@ -167,6 +172,21 @@ def render_header():
         .sipoc-c {background: #F1EBFF;}
         .section-title {font-weight: 700; font-size: 1.0rem; margin-bottom: 8px;}
         .small-text {font-size: 0.92rem; line-height: 1.3rem;}
+        .sipoc-title {background:#05005e; color:#fff; border-radius:12px 12px 0 0; text-align:center; padding:10px; font-size:2.0rem; font-weight:900; letter-spacing:1px;}
+        .sipoc-board {border:2px solid #191970; border-top:0; padding:16px; border-radius:0 0 12px 12px; background:#ffffff;}
+        .sipoc-cell {border:2px solid #7474c7; background:#fffde9; border-radius:6px; padding:12px; text-align:center; min-height:112px;}
+        .sipoc-letter {font-size:2.2rem; font-weight:900; color:#e00000; line-height:2.0rem;}
+        .sipoc-head {font-weight:800; color:#111827; margin-bottom:8px;}
+        .sipoc-sub {font-size:0.82rem; color:#00006b; font-weight:700; margin-top:6px;}
+        .arrow {font-size:2.0rem; color:#191970; font-weight:900; text-align:center; margin-top:45px;}
+        .flow-wrap {margin-top:18px; border:2px solid #7474c7; border-radius:10px; padding:16px; background:#f8fafc;}
+        .flow-node {border:2px solid #94a3b8; background:white; border-radius:12px; padding:12px; text-align:center; min-height:82px; box-shadow:0 1px 5px rgba(0,0,0,.08);}
+        .flow-start {background:#d1fae5; border-color:#10b981;}
+        .flow-decision {background:#fee2e2; border-color:#ef4444; transform:rotate(45deg); width:86px; height:86px; margin:auto; display:flex; align-items:center; justify-content:center;}
+        .flow-decision span {transform:rotate(-45deg); font-weight:800;}
+        .flow-output {background:#dcfce7; border-color:#22c55e;}
+        .flow-end {background:#ccfbf1; border-color:#14b8a6;}
+        .flow-label {font-size:.85rem; line-height:1.15rem;}
         </style>
         """,
         unsafe_allow_html=True,
@@ -334,26 +354,46 @@ def page_matriz(df: pd.DataFrame):
         st.dataframe(top[["id_registro", "tipo_entrada", "produto_linha", "prioridade", "pontuacao", "status", "descricao"]], use_container_width=True, hide_index=True)
 
 
+
+def sipoc_card_html(title: str, letter: str, subtitle: str, content: str) -> str:
+    content = str(content or "-").replace("<", "&lt;").replace(">", "&gt;")
+    return f"""
+    <div class='sipoc-cell'>
+        <div class='sipoc-head'>{title}</div>
+        <div class='sipoc-letter'>{letter}</div>
+        <div class='sipoc-sub'>{subtitle}</div>
+        <div class='small-text' style='margin-top:8px'>{content}</div>
+    </div>
+    """
+
+
+def flow_node_html(text: str, css_class: str = "") -> str:
+    text = str(text or "-").replace("<", "&lt;").replace(">", "&gt;")
+    return f"<div class='flow-node {css_class}'><div class='flow-label'>{text}</div></div>"
+
+
 def page_sipoc(df_gemba: pd.DataFrame, sipoc_df: pd.DataFrame):
-    st.subheader("SIPOC Interativo")
-    st.caption("Use esta tela durante a reunião para mapear entradas da Voz do Cliente e transformar observações em estrutura de processo.")
+    st.subheader("SIPOC Interativo + Fluxograma")
+    st.caption("Use esta tela durante a reunião para mapear entradas da Voz do Cliente, organizar o processo e visualizar o fluxo de ponta a ponta.")
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Linhas SIPOC", len(sipoc_df))
     c2.metric("Fornecedores mapeados", sipoc_df["supplier"].replace("", pd.NA).dropna().nunique() if not sipoc_df.empty else 0)
     c3.metric("Oportunidades registradas", sipoc_df["oportunidade_app"].replace("", pd.NA).dropna().shape[0] if not sipoc_df.empty else 0)
 
-    with st.expander("Sugestão de uso na reunião", expanded=False):
+    with st.expander("Como usar em reunião", expanded=False):
         st.markdown(
             """
-            1. Defina um **tema** da reunião, por exemplo: *Reclamações de produto*.
-            2. Preencha as colunas **Supplier, Input, Processo, Output e Customer**.
-            3. Registre a **dor atual** e a **oportunidade para o app**.
-            4. Ao final, salve e exporte o CSV.
+            **Objetivo da tela:** facilitar uma reunião de Kaizen para descobrir quais entradas o app VOC precisa ter.  
+            1. Defina um **tema**: reclamações, sugestões, dúvidas, mercado, concorrentes ou inovação.  
+            2. Preencha o SIPOC: **Supplier → Input → Process → Output → Customer**.  
+            3. Quebre o **Process** em etapas simples do fluxo.  
+            4. Registre a **dor atual** e a **oportunidade para o aplicativo**.  
+            5. Use o visual para apresentar e alinhar com o time.
             """
         )
 
-    tab1, tab2, tab3 = st.tabs(["Editor SIPOC", "Visual da reunião", "Gerar rascunho a partir do Gemba"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Editor SIPOC", "SIPOC visual", "Fluxograma do processo", "Rascunho pelo Gemba"])
 
     with tab1:
         st.markdown("#### Preenchimento colaborativo")
@@ -361,14 +401,19 @@ def page_sipoc(df_gemba: pd.DataFrame, sipoc_df: pd.DataFrame):
         if editor_df.empty:
             editor_df = pd.DataFrame([
                 {
-                    "tema": "Ex.: Sugestão de melhoria",
-                    "supplier": "Comercial",
-                    "input": "Sugestão recebida de médico",
-                    "processo_atual": "Chega por WhatsApp e fica disperso",
-                    "output_esperado": "Registro técnico estruturado",
-                    "customer": "Engenharia",
-                    "dor_atual": "Informação se perde",
-                    "oportunidade_app": "Criar entrada específica no app",
+                    "tema": "Sugestão de melhoria de produto",
+                    "supplier": "Comercial / Médico / Distribuidor",
+                    "input": "Relato de melhoria, reclamação, dúvida ou demanda de mercado",
+                    "processo_atual": "Informação chega por WhatsApp, e-mail ou conversa e pode ficar dispersa",
+                    "etapa_1": "Captar relato",
+                    "etapa_2": "Registrar no app",
+                    "etapa_3": "Classificar tipo de entrada",
+                    "etapa_4": "Avaliar impacto e prioridade",
+                    "etapa_5": "Encaminhar para área responsável",
+                    "output_esperado": "Entrada VOC estruturada e priorizada",
+                    "customer": "Engenharia / Qualidade / Comercial",
+                    "dor_atual": "Informação não chega padronizada para análise técnica",
+                    "oportunidade_app": "Criar árvore de perguntas e dashboard de entradas VOC",
                     "prioridade": "Alta",
                     "responsavel": "Engenharia/Comercial",
                 }
@@ -380,12 +425,17 @@ def page_sipoc(df_gemba: pd.DataFrame, sipoc_df: pd.DataFrame):
             use_container_width=True,
             hide_index=True,
             column_config={
-                "tema": st.column_config.TextColumn("Tema", help="Assunto discutido na reunião"),
-                "supplier": st.column_config.TextColumn("Supplier"),
-                "input": st.column_config.TextColumn("Input"),
-                "processo_atual": st.column_config.TextColumn("Processo atual"),
-                "output_esperado": st.column_config.TextColumn("Output esperado"),
-                "customer": st.column_config.TextColumn("Customer"),
+                "tema": st.column_config.TextColumn("Tema"),
+                "supplier": st.column_config.TextColumn("S — Supplier / Fornecedor"),
+                "input": st.column_config.TextColumn("I — Input / Entrada"),
+                "processo_atual": st.column_config.TextColumn("P — Processo atual"),
+                "etapa_1": st.column_config.TextColumn("Etapa 1"),
+                "etapa_2": st.column_config.TextColumn("Etapa 2"),
+                "etapa_3": st.column_config.TextColumn("Etapa 3"),
+                "etapa_4": st.column_config.TextColumn("Etapa 4"),
+                "etapa_5": st.column_config.TextColumn("Etapa 5"),
+                "output_esperado": st.column_config.TextColumn("O — Output / Saída"),
+                "customer": st.column_config.TextColumn("C — Customer / Cliente interno"),
                 "dor_atual": st.column_config.TextColumn("Dor atual"),
                 "oportunidade_app": st.column_config.TextColumn("Oportunidade para o app"),
                 "prioridade": st.column_config.SelectboxColumn("Prioridade", options=PRIORIDADES),
@@ -394,56 +444,88 @@ def page_sipoc(df_gemba: pd.DataFrame, sipoc_df: pd.DataFrame):
             key="sipoc_editor"
         )
 
-        csave, cclear = st.columns([1,1])
-        with csave:
+        col_save, col_clear, col_export = st.columns([1,1,1])
+        with col_save:
             if st.button("Salvar SIPOC", type="primary"):
                 edited = edited.fillna("")
                 save_sipoc(edited[SIPOC_COLUMNS])
                 st.success("Mapa SIPOC salvo com sucesso.")
-        with cclear:
+        with col_clear:
             if st.button("Limpar mapa SIPOC"):
                 vazio = pd.DataFrame(columns=SIPOC_COLUMNS)
                 save_sipoc(vazio)
-                st.success("Mapa SIPOC limpo. Atualize a página se quiser recomeçar do zero.")
+                st.success("Mapa SIPOC limpo. Atualize a página para recomeçar.")
+        with col_export:
+            csv = edited.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+            st.download_button("Baixar SIPOC CSV", data=csv, file_name="sipoc_reuniao.csv", mime="text/csv")
 
-        csv = edited.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-        st.download_button("Baixar SIPOC em CSV", data=csv, file_name="sipoc_reuniao.csv", mime="text/csv")
+    visual_df = sipoc_df if not sipoc_df.empty else edited
+    visual_df = visual_df.fillna("")
+
+    def select_row(label: str):
+        if visual_df.empty:
+            st.info("Preencha e salve o editor SIPOC para visualizar o mapa.")
+            return None
+        temas = [f"{i+1}. {t if str(t).strip() else 'Sem tema'}" for i, t in enumerate(visual_df["tema"].tolist())]
+        idx = st.selectbox(label, range(len(temas)), format_func=lambda i: temas[i])
+        return visual_df.iloc[idx]
 
     with tab2:
-        st.markdown("#### Visual resumido")
-        visual_df = sipoc_df if not sipoc_df.empty else edited
-        visual_df = visual_df.fillna("")
-        if visual_df.empty:
-            st.info("Preencha o editor SIPOC para visualizar o mapa.")
-        else:
-            temas = [f"{i+1}. {t if str(t).strip() else 'Sem tema'}" for i, t in enumerate(visual_df["tema"].tolist())]
-            idx = st.selectbox("Escolha a linha SIPOC para destacar", range(len(temas)), format_func=lambda i: temas[i])
-            row = visual_df.iloc[idx]
+        st.markdown("#### SIPOC visual para apresentação")
+        row = select_row("Escolha a linha SIPOC")
+        if row is not None:
+            st.markdown("<div class='sipoc-title'>SIPOC</div><div class='sipoc-board'>", unsafe_allow_html=True)
+            cols = st.columns([1, .18, 1, .18, 1, .18, 1, .18, 1])
+            cols[0].markdown(sipoc_card_html("Fornecedores", "S", "Suppliers", row.get("supplier", "")), unsafe_allow_html=True)
+            cols[1].markdown("<div class='arrow'>→</div>", unsafe_allow_html=True)
+            cols[2].markdown(sipoc_card_html("Entradas", "I", "Inputs", row.get("input", "")), unsafe_allow_html=True)
+            cols[3].markdown("<div class='arrow'>→</div>", unsafe_allow_html=True)
+            cols[4].markdown(sipoc_card_html("Processo", "P", "Process", row.get("processo_atual", "")), unsafe_allow_html=True)
+            cols[5].markdown("<div class='arrow'>→</div>", unsafe_allow_html=True)
+            cols[6].markdown(sipoc_card_html("Saídas", "O", "Outputs", row.get("output_esperado", "")), unsafe_allow_html=True)
+            cols[7].markdown("<div class='arrow'>→</div>", unsafe_allow_html=True)
+            cols[8].markdown(sipoc_card_html("Clientes", "C", "Customers", row.get("customer", "")), unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-            cols = st.columns(5)
-            blocks = [
-                ("Supplier", row.get("supplier", ""), "sipoc-s"),
-                ("Input", row.get("input", ""), "sipoc-i"),
-                ("Process", row.get("processo_atual", ""), "sipoc-p"),
-                ("Output", row.get("output_esperado", ""), "sipoc-o"),
-                ("Customer", row.get("customer", ""), "sipoc-c"),
-            ]
-            for col, (title, text, css) in zip(cols, blocks):
-                col.markdown(
-                    f"<div class='mini-card {css}'><div class='section-title'>{title}</div><div class='small-text'>{text or '-'}</div></div>",
-                    unsafe_allow_html=True,
-                )
-
-            st.markdown("#### Complementos")
+            st.markdown("#### Complementos do diagnóstico")
             c1, c2, c3 = st.columns(3)
-            c1.text_area("Dor atual", value=row.get("dor_atual", ""), height=140, disabled=True)
-            c2.text_area("Oportunidade para o app", value=row.get("oportunidade_app", ""), height=140, disabled=True)
+            c1.text_area("Dor atual", value=row.get("dor_atual", ""), height=130, disabled=True)
+            c2.text_area("Oportunidade para o app", value=row.get("oportunidade_app", ""), height=130, disabled=True)
             c3.markdown(
-                f"**Prioridade:** {row.get('prioridade', '-') or '-'}  \n\n**Responsável:** {row.get('responsavel', '-') or '-'}  \n\n**Tema:** {row.get('tema', '-') or '-'}"
+                f"**Prioridade:** {row.get('prioridade', '-') or '-'}  \n\n"
+                f"**Responsável:** {row.get('responsavel', '-') or '-'}  \n\n"
+                f"**Tema:** {row.get('tema', '-') or '-'}"
             )
 
     with tab3:
-        st.markdown("#### Criar um rascunho usando a base do Gemba")
+        st.markdown("#### Fluxograma do processo")
+        row = select_row("Escolha a linha para o fluxograma")
+        if row is not None:
+            etapas = [row.get(f"etapa_{i}", "") for i in range(1, 6)]
+            etapas = [e for e in etapas if str(e).strip()]
+            if not etapas:
+                etapas = ["Captar", "Registrar", "Classificar", "Priorizar", "Encaminhar"]
+
+            st.markdown("<div class='flow-wrap'>", unsafe_allow_html=True)
+            cols = st.columns([1, .2, 1, .2, 1, .2, 1, .2, 1])
+            # até 5 etapas para não poluir a reunião
+            padded = etapas[:5] + [""] * (5 - len(etapas[:5]))
+            csses = ["flow-start", "", "", "flow-output", "flow-end"]
+            for i, etapa in enumerate(padded):
+                cols[i*2].markdown(flow_node_html(etapa, csses[i]), unsafe_allow_html=True)
+                if i < 4:
+                    cols[i*2+1].markdown("<div class='arrow' style='margin-top:22px'>→</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            st.markdown("##### Leitura do fluxo")
+            st.write(
+                f"**Entrada:** {row.get('input', '-') or '-'}  →  "
+                f"**Processo:** {row.get('processo_atual', '-') or '-'}  →  "
+                f"**Saída esperada:** {row.get('output_esperado', '-') or '-'}"
+            )
+
+    with tab4:
+        st.markdown("#### Criar rascunho usando a base do Gemba")
         if df_gemba.empty:
             st.info("Ainda não há registros no Gemba para gerar sugestões.")
         else:
@@ -453,7 +535,6 @@ def page_sipoc(df_gemba: pd.DataFrame, sipoc_df: pd.DataFrame):
             sugestao = base[["supplier_sugerido", "input_sugerido", "responsavel", "prioridade"]].head(12)
             st.dataframe(sugestao, use_container_width=True, hide_index=True)
             st.markdown("Use essas linhas como apoio para preencher o SIPOC na aba **Editor SIPOC**.")
-
 
 def page_roteiro():
     st.subheader("Roteiro de Gemba Walk VOC")
