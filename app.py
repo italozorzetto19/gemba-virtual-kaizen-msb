@@ -762,6 +762,7 @@ def main():
             "Roteiro Gemba",
             "Base completa",
         ],
+        
     )
 
     if menu == "Novo registro":
