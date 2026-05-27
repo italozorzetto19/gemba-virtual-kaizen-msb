@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from datetime import datetime, date
 from pathlib import Path
-import html
 import json
 import uuid
 
@@ -12,7 +11,7 @@ import plotly.express as px
 import streamlit as st
 
 
-APP_TITLE = "VOC Kaizen + SIPOC"
+APP_TITLE = "VOC Kaizen + SIPOC + Fluxograma"
 DATA_DIR = Path("data")
 DATA_FILE = DATA_DIR / "gemba_registros.csv"
 SIPOC_FILE = DATA_DIR / "sipoc_registros.csv"
@@ -42,13 +41,20 @@ COLUMNS = [
     "prioridade",
 ]
 
-# SIPOC enxuto: somente as 5 colunas pedidas.
 SIPOC_COLUMNS = [
     "fornecedores",
     "entradas",
     "processo",
     "saidas",
     "clientes",
+]
+
+FLOW_COLUMNS = [
+    "ordem",
+    "tipo",
+    "texto",
+    "sim",
+    "nao",
 ]
 
 SETORES = [
@@ -82,48 +88,79 @@ FOCOS = [
 
 STATUS = ["Novo", "Em triagem", "Em análise", "Ação aberta", "Monitoramento", "Concluído", "Descartado"]
 
-FLOW_TYPES = {
-    "Início/Fim": {
-        "class": "terminal",
-        "svg": '<ellipse cx="80" cy="45" rx="70" ry="30"></ellipse>',
-        "default": "Início",
-    },
-    "Processo": {
-        "class": "process",
-        "svg": '<rect x="12" y="15" width="136" height="60" rx="8"></rect>',
-        "default": "Processo",
-    },
-    "Decisão": {
-        "class": "decision",
-        "svg": '<polygon points="80,8 150,45 80,82 10,45"></polygon>',
-        "default": "Decisão?",
-    },
-    "Documento": {
-        "class": "document",
-        "svg": '<path d="M15 12 H145 V62 Q105 88 15 66 Z"></path>',
-        "default": "Documento",
-    },
-    "Input/Output": {
-        "class": "io",
-        "svg": '<polygon points="28,12 150,12 132,78 10,78"></polygon>',
-        "default": "Entrada/Saída",
-    },
-    "Database": {
-        "class": "database",
-        "svg": '<ellipse cx="80" cy="18" rx="65" ry="12"></ellipse><path d="M15 18 V70 C15 85 145 85 145 70 V18"></path><ellipse cx="80" cy="70" rx="65" ry="12"></ellipse>',
-        "default": "Base de dados",
-    },
-    "Atraso/Espera": {
-        "class": "delay",
-        "svg": '<path d="M25 12 H88 C126 12 150 28 150 45 C150 62 126 78 88 78 H25 Z"></path>',
-        "default": "Aguardar",
-    },
-    "Armazenamento": {
-        "class": "storage",
-        "svg": '<path d="M20 12 H140 V58 L80 84 L20 58 Z"></path>',
-        "default": "Armazenar",
-    },
+FLOW_TYPES = [
+    "Início/Fim",
+    "Processo",
+    "Decisão",
+    "Documento",
+    "Input/Output",
+    "Banco de dados",
+    "Espera/Atraso",
+    "Armazenamento",
+]
+
+DOT_SHAPES = {
+    "Início/Fim": "oval",
+    "Processo": "box",
+    "Decisão": "diamond",
+    "Documento": "note",
+    "Input/Output": "parallelogram",
+    "Banco de dados": "cylinder",
+    "Espera/Atraso": "cds",
+    "Armazenamento": "folder",
 }
+
+
+def default_sipoc() -> pd.DataFrame:
+    return pd.DataFrame([
+        {
+            "fornecedores": "Comercial",
+            "entradas": "Relato de cliente, reclamação, sugestão ou dúvida",
+            "processo": "Informação chega por WhatsApp, e-mail ou conversa informal",
+            "saidas": "Entrada VOC estruturada e priorizada",
+            "clientes": "Engenharia / Qualidade / Comercial",
+        },
+        {
+            "fornecedores": "Engenharia",
+            "entradas": "Ideia técnica ou oportunidade de melhoria",
+            "processo": "Avaliação preliminar da viabilidade técnica",
+            "saidas": "Proposta de melhoria ou estudo técnico",
+            "clientes": "P&D / Qualidade / Produção",
+        },
+        {
+            "fornecedores": "Médico / Hospital",
+            "entradas": "Dificuldade de uso, sugestão de medida ou comparação com concorrente",
+            "processo": "Registro pelo app e classificação do tipo de entrada",
+            "saidas": "Demanda técnica para triagem",
+            "clientes": "Engenharia / Comercial",
+        },
+        {
+            "fornecedores": "Agente Radar",
+            "entradas": "Sinal de mercado, nova tecnologia, patente, edital ou concorrente",
+            "processo": "Pesquisa online, resumo e classificação do achado",
+            "saidas": "Oportunidade de inovação ou benchmarking",
+            "clientes": "Engenharia / P&D / Comercial",
+        },
+        {
+            "fornecedores": "",
+            "entradas": "",
+            "processo": "",
+            "saidas": "",
+            "clientes": "",
+        },
+    ])
+
+
+def default_flow() -> list[dict]:
+    return [
+        {"ordem": 1, "tipo": "Início/Fim", "texto": "Início", "sim": "", "nao": ""},
+        {"ordem": 2, "tipo": "Input/Output", "texto": "Receber entrada VOC", "sim": "", "nao": ""},
+        {"ordem": 3, "tipo": "Processo", "texto": "Registrar no app", "sim": "", "nao": ""},
+        {"ordem": 4, "tipo": "Decisão", "texto": "Precisa análise técnica?", "sim": "Encaminhar para responsável", "nao": "Manter em monitoramento"},
+        {"ordem": 5, "tipo": "Processo", "texto": "Classificar e priorizar", "sim": "", "nao": ""},
+        {"ordem": 6, "tipo": "Documento", "texto": "Gerar registro estruturado", "sim": "", "nao": ""},
+        {"ordem": 7, "tipo": "Início/Fim", "texto": "Fim", "sim": "", "nao": ""},
+    ]
 
 
 def init_files() -> None:
@@ -131,9 +168,9 @@ def init_files() -> None:
     if not DATA_FILE.exists():
         pd.DataFrame(columns=COLUMNS).to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
     if not SIPOC_FILE.exists():
-        pd.DataFrame(columns=SIPOC_COLUMNS).to_csv(SIPOC_FILE, index=False, encoding="utf-8-sig")
+        default_sipoc().to_csv(SIPOC_FILE, index=False, encoding="utf-8-sig")
     if not FLOW_FILE.exists():
-        FLOW_FILE.write_text("{}", encoding="utf-8")
+        FLOW_FILE.write_text(json.dumps({}, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def load_data() -> pd.DataFrame:
@@ -154,7 +191,7 @@ def load_sipoc() -> pd.DataFrame:
     init_files()
     df = pd.read_csv(SIPOC_FILE, encoding="utf-8-sig")
 
-    # Compatibilidade com versões antigas do arquivo.
+    # Compatibilidade com versões anteriores.
     rename_map = {
         "supplier": "fornecedores",
         "input": "entradas",
@@ -169,6 +206,8 @@ def load_sipoc() -> pd.DataFrame:
             df[col] = ""
 
     df = df[SIPOC_COLUMNS].fillna("")
+    if df.empty:
+        df = default_sipoc()
     return df
 
 
@@ -191,11 +230,9 @@ def save_flows(flows: dict) -> None:
     FLOW_FILE.write_text(json.dumps(flows, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def sipoc_key(row: pd.Series, index: int) -> str:
-    seed = "|".join(str(row.get(c, "")) for c in SIPOC_COLUMNS)
-    if not seed.strip("| "):
-        seed = f"linha_{index}"
-    return f"sipoc_{index}_{abs(hash(seed))}"
+def sipoc_key(index: int) -> str:
+    # Chave fixa por linha para não perder o fluxograma quando editar texto.
+    return f"sipoc_linha_{index}"
 
 
 def gerar_id(df: pd.DataFrame) -> str:
@@ -219,8 +256,14 @@ def calcular_pontuacao(frequencia: str, impacto_cliente: str, impacto_eng: str, 
     return score, prioridade
 
 
-def safe(text: str) -> str:
-    return html.escape(str(text or "")).replace("\n", "<br>")
+def clean_label(text: str, max_len: int = 70) -> str:
+    text = str(text or "").strip()
+    if not text:
+        return " "
+    text = text.replace('"', "'")
+    if len(text) > max_len:
+        return text[:max_len] + "..."
+    return text
 
 
 def render_header():
@@ -228,65 +271,39 @@ def render_header():
     st.markdown(
         """
         <style>
-        .block-container {padding-top: 1.3rem; padding-bottom: 1rem;}
-        div[data-testid="stDataFrame"] {border-radius: 12px; overflow: hidden;}
+        .block-container {padding-top: 1.2rem;}
         .hero {
-            background: linear-gradient(135deg, #08035f 0%, #17108f 58%, #311b92 100%);
+            background: linear-gradient(135deg, #08035f 0%, #17108f 60%, #3d2bb8 100%);
             color: white; padding: 20px 24px; border-radius: 20px; margin-bottom: 18px;
             box-shadow: 0 12px 30px rgba(8,3,95,0.18);
         }
-        .hero h1 {font-size: 2.0rem; margin: 0; letter-spacing: 0.4px;}
-        .hero p {margin: 6px 0 0 0; opacity: 0.9;}
-        .section-label {font-size: .82rem; text-transform: uppercase; letter-spacing: .08em; color:#64748b; font-weight:800;}
-        .sipoc-header {
-            background: #08035f; color: white; text-align: center; padding: 18px; border-radius: 18px 18px 0 0;
-            font-size: 2.1rem; font-weight: 900; letter-spacing: 2px; margin-top: 10px;
+        .hero h1 {font-size: 2rem; margin: 0;}
+        .hero p {margin: 6px 0 0 0; opacity: 0.92;}
+        .sipoc-title {
+            background:#08035f; color:white; text-align:center; padding:18px;
+            border-radius:18px 18px 0 0; font-size:2rem; font-weight:900; letter-spacing:2px;
         }
-        .sipoc-row {
-            border: 2px solid #08035f; border-top: 0; padding: 18px 14px 22px 14px; border-radius: 0 0 18px 18px;
-            background: linear-gradient(180deg,#ffffff,#f8fafc);
+        .sipoc-shell {
+            border:2px solid #08035f; border-top:0; border-radius:0 0 18px 18px;
+            padding:18px 14px 22px; background:#fff;
         }
         .sipoc-card {
-            background: #fffef0; border: 2px solid #5146e5; border-radius: 12px; min-height: 190px;
-            padding: 14px 12px; text-align:center; box-shadow: 0 6px 16px rgba(15,23,42,0.08);
+            background:#fffdef; border:2px solid #4f46e5; border-radius:14px; padding:14px 12px;
+            min-height:185px; text-align:center; box-shadow:0 8px 22px rgba(15,23,42,.08);
         }
-        .sipoc-card .top {font-weight: 800; color:#111827;}
-        .sipoc-card .letter {font-size: 2.5rem; color: #e00000; font-weight: 900; margin-top: 7px;}
-        .sipoc-card .sub {font-size: .8rem; color:#08035f; font-weight: 800; margin-bottom: 10px;}
-        .sipoc-card .txt {font-size: .95rem; color:#111827; line-height: 1.35rem;}
-        .arrow-big {font-size: 2.4rem; color:#08035f; font-weight: 900; text-align:center; padding-top:75px;}
-        .flow-wrap {
-            background: #fff; border: 2px solid #5b5cf6; border-radius: 16px; padding: 18px 20px;
-            box-shadow: 0 8px 22px rgba(15,23,42,.08); margin-top: 12px;
+        .sipoc-card .top {font-weight:900; color:#111827;}
+        .sipoc-card .letter {font-size:2.5rem; color:#e00000; font-weight:900; margin:8px 0 2px;}
+        .sipoc-card .sub {font-size:.78rem; color:#08035f; font-weight:900; margin-bottom:10px;}
+        .sipoc-card .body {font-size:.95rem; color:#111827; line-height:1.35rem;}
+        .sipoc-arrow {font-size:2.2rem; color:#08035f; font-weight:900; padding-top:75px; text-align:center;}
+        .info-card {
+            border:1px solid #dbe3ef; background:#f8fafc; padding:14px 16px; border-radius:14px;
+            color:#334155; margin-bottom:12px;
         }
-        .flow-title {
-            background: #08035f; color:#fff; padding: 12px 16px; border-radius: 13px; text-align:center;
-            font-weight: 900; letter-spacing: .08em; margin-bottom: 16px;
+        .graph-box {
+            border:2px solid #4f46e5; background:#ffffff; border-radius:18px; padding:12px 18px 18px;
+            box-shadow:0 8px 20px rgba(15,23,42,.08);
         }
-        .flow-lane {display:flex; align-items:center; gap:18px; overflow-x:auto; padding: 10px 2px 18px 2px;}
-        .flow-step {min-width: 170px; max-width: 230px; text-align:center;}
-        .flow-arrow {font-size: 2.1rem; color:#08035f; font-weight:900; margin-top: -10px;}
-        .flow-svg svg {width:160px; height:90px;}
-        .flow-svg svg * {fill:#fff5b7; stroke:#d97706; stroke-width:2.2;}
-        .flow-step.terminal svg * {fill:#ccfbf1; stroke:#0f766e;}
-        .flow-step.decision svg * {fill:#fee2e2; stroke:#dc2626;}
-        .flow-step.io svg * {fill:#dbeafe; stroke:#2563eb;}
-        .flow-step.database svg * {fill:#e0f2fe; stroke:#0284c7;}
-        .flow-step.delay svg * {fill:#fed7aa; stroke:#ea580c;}
-        .flow-step.storage svg * {fill:#dcfce7; stroke:#16a34a;}
-        .flow-text {
-            margin-top: 8px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 9px 10px;
-            color:#0f172a; background:#f8fafc; font-size:.92rem; line-height:1.25rem; min-height:52px;
-        }
-        .yesno {
-            margin-top:6px; font-size:.78rem; font-weight:800; color:#0f172a;
-            background:#e2e8f0; border-radius:999px; display:inline-block; padding:3px 9px;
-        }
-        .hint-card {
-            border: 1px solid #dbe3ef; background: #f8fafc; padding: 14px 16px; border-radius: 14px;
-            color: #334155; margin-bottom: 12px;
-        }
-        .small-muted {color:#64748b; font-size:.9rem;}
         </style>
         """,
         unsafe_allow_html=True,
@@ -294,8 +311,8 @@ def render_header():
     st.markdown(
         """
         <div class="hero">
-          <h1>📌 VOC Kaizen + SIPOC</h1>
-          <p>Gestão visual das entradas da Voz do Cliente, análise SIPOC e construção interativa do fluxograma do processo.</p>
+          <h1>📌 VOC Kaizen + SIPOC + Fluxograma</h1>
+          <p>Ferramenta visual para reunião: matriz SIPOC enxuta, atualização imediata e construção de fluxograma.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -426,134 +443,167 @@ def page_dashboard(df: pd.DataFrame):
         fig = px.pie(prio_count, names="Prioridade", values="Quantidade", title="Distribuição por prioridade")
         st.plotly_chart(fig, use_container_width=True)
 
-    col7, col8 = st.columns(2)
-    with col7:
-        origem_count = fdf["origem_informacao"].value_counts().reset_index().head(10)
-        origem_count.columns = ["Origem", "Quantidade"]
-        fig = px.bar(origem_count, x="Origem", y="Quantidade", title="Principais origens")
-        st.plotly_chart(fig, use_container_width=True)
-    with col8:
-        status_count = fdf["status"].value_counts().reset_index()
-        status_count.columns = ["Status", "Quantidade"]
-        fig = px.bar(status_count, x="Status", y="Quantidade", title="Status dos registros")
-        st.plotly_chart(fig, use_container_width=True)
-
     st.markdown("### Base filtrada")
     st.dataframe(fdf.sort_values("id_registro", ascending=False), use_container_width=True, hide_index=True)
     csv = fdf.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
     st.download_button("Baixar CSV filtrado", data=csv, file_name="gemba_virtual_filtrado.csv", mime="text/csv")
 
 
-def render_sipoc_visual(row: pd.Series):
-    values = {
-        "Fornecedores": row.get("fornecedores", ""),
-        "Entradas": row.get("entradas", ""),
-        "Processo": row.get("processo", ""),
-        "Saídas": row.get("saidas", ""),
-        "Clientes": row.get("clientes", ""),
-    }
-    letters = {"Fornecedores": "S", "Entradas": "I", "Processo": "P", "Saídas": "O", "Clientes": "C"}
-    subtitles = {"Fornecedores": "Suppliers", "Entradas": "Inputs", "Processo": "Process", "Saídas": "Outputs", "Clientes": "Customers"}
+def render_sipoc_cards(row: pd.Series):
+    items = [
+        ("Fornecedores", "S", "Suppliers", row.get("fornecedores", "")),
+        ("Entradas", "I", "Inputs", row.get("entradas", "")),
+        ("Processo", "P", "Process", row.get("processo", "")),
+        ("Saídas", "O", "Outputs", row.get("saidas", "")),
+        ("Clientes", "C", "Customers", row.get("clientes", "")),
+    ]
 
-    st.markdown("<div class='sipoc-header'>SIPOC</div><div class='sipoc-row'>", unsafe_allow_html=True)
-    cols = st.columns([1, .18, 1, .18, 1, .18, 1, .18, 1])
-    card_order = ["Fornecedores", "Entradas", "Processo", "Saídas", "Clientes"]
-    col_i = 0
-    for i, item in enumerate(card_order):
-        with cols[col_i]:
+    st.markdown("<div class='sipoc-title'>SIPOC</div><div class='sipoc-shell'>", unsafe_allow_html=True)
+    cols = st.columns([1, .16, 1, .16, 1, .16, 1, .16, 1])
+    pos = 0
+    for i, (title, letter, subtitle, text) in enumerate(items):
+        with cols[pos]:
             st.markdown(
                 f"""
                 <div class="sipoc-card">
-                    <div class="top">{item}</div>
-                    <div class="letter">{letters[item]}</div>
-                    <div class="sub">{subtitles[item]}</div>
-                    <div class="txt">{safe(values[item]) or "-"}</div>
+                    <div class="top">{title}</div>
+                    <div class="letter">{letter}</div>
+                    <div class="sub">{subtitle}</div>
+                    <div class="body">{clean_label(text, 150) or "-"}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-        col_i += 1
-        if i < len(card_order) - 1:
-            with cols[col_i]:
-                st.markdown("<div class='arrow-big'>➜</div>", unsafe_allow_html=True)
-            col_i += 1
+        pos += 1
+        if i < len(items) - 1:
+            with cols[pos]:
+                st.markdown("<div class='sipoc-arrow'>➜</div>", unsafe_allow_html=True)
+            pos += 1
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def get_flow_for_key(flows: dict, key: str, row: pd.Series | None = None) -> list[dict]:
-    if key in flows and isinstance(flows[key], list):
-        return flows[key]
-    processo = ""
-    if row is not None:
-        processo = str(row.get("processo", "") or "")
-    return [
-        {"id": str(uuid.uuid4()), "tipo": "Início/Fim", "texto": "Início", "sim": "", "nao": ""},
-        {"id": str(uuid.uuid4()), "tipo": "Input/Output", "texto": "Receber entrada VOC", "sim": "", "nao": ""},
-        {"id": str(uuid.uuid4()), "tipo": "Processo", "texto": processo or "Registrar no app", "sim": "", "nao": ""},
-        {"id": str(uuid.uuid4()), "tipo": "Decisão", "texto": "Necessita análise técnica?", "sim": "Sim: encaminhar", "nao": "Não: monitorar"},
-        {"id": str(uuid.uuid4()), "tipo": "Processo", "texto": "Definir responsável", "sim": "", "nao": ""},
-        {"id": str(uuid.uuid4()), "tipo": "Início/Fim", "texto": "Fim", "sim": "", "nao": ""},
+def make_flow_dot(steps: list[dict]) -> str:
+    lines = [
+        'digraph G {',
+        'rankdir=LR;',
+        'graph [bgcolor="transparent", pad="0.35", nodesep="0.55", ranksep="0.7"];',
+        'node [style="filled,rounded", fontname="Arial", fontsize="11", color="#1e1b4b", penwidth="2", fillcolor="#fff7cc", margin="0.10,0.08"];',
+        'edge [fontname="Arial", fontsize="10", color="#08035f", penwidth="2.2", arrowsize="0.8"];',
     ]
 
-
-def render_flowchart(steps: list[dict]):
-    html_parts = ["<div class='flow-wrap'><div class='flow-title'>FLUXOGRAMA DO PROCESSO</div><div class='flow-lane'>"]
+    cleaned = []
     for i, step in enumerate(steps):
-        tipo = step.get("tipo", "Processo")
-        cfg = FLOW_TYPES.get(tipo, FLOW_TYPES["Processo"])
-        texto = step.get("texto", "")
-        yesno = ""
-        if tipo == "Decisão":
-            sim = step.get("sim", "")
-            nao = step.get("nao", "")
-            if sim or nao:
-                yesno = f"<div class='yesno'>{safe(sim)} &nbsp; | &nbsp; {safe(nao)}</div>"
-        html_parts.append(
-            f"""
-            <div class="flow-step {cfg['class']}">
-                <div class="flow-svg">
-                    <svg viewBox="0 0 160 90">{cfg['svg']}</svg>
-                </div>
-                <div class="flow-text">{safe(texto) or "-"}</div>
-                {yesno}
-            </div>
-            """
+        texto = str(step.get("texto", "") or "").strip()
+        tipo = str(step.get("tipo", "") or "Processo")
+        if not texto and tipo != "Decisão":
+            continue
+        if tipo not in DOT_SHAPES:
+            tipo = "Processo"
+        cleaned.append({
+            "id": f"n{i}",
+            "tipo": tipo,
+            "texto": texto or DOT_SHAPES.get(tipo, "Processo"),
+            "sim": str(step.get("sim", "") or "").strip(),
+            "nao": str(step.get("nao", "") or "").strip(),
+        })
+
+    if not cleaned:
+        cleaned = [{"id": "n0", "tipo": "Início/Fim", "texto": "Início", "sim": "", "nao": ""}]
+
+    for item in cleaned:
+        shape = DOT_SHAPES.get(item["tipo"], "box")
+        fill = "#fff7cc"
+        if item["tipo"] == "Início/Fim":
+            fill = "#ccfbf1"
+        elif item["tipo"] == "Decisão":
+            fill = "#fee2e2"
+        elif item["tipo"] == "Input/Output":
+            fill = "#dbeafe"
+        elif item["tipo"] == "Banco de dados":
+            fill = "#e0f2fe"
+        elif item["tipo"] == "Documento":
+            fill = "#fef3c7"
+        elif item["tipo"] == "Armazenamento":
+            fill = "#dcfce7"
+
+        lines.append(
+            f'{item["id"]} [label="{clean_label(item["texto"], 55)}", shape={shape}, fillcolor="{fill}"];'
         )
-        if i < len(steps) - 1:
-            html_parts.append("<div class='flow-arrow'>➜</div>")
-    html_parts.append("</div></div>")
-    st.markdown("".join(html_parts), unsafe_allow_html=True)
+
+    extra_count = 0
+    for i in range(len(cleaned) - 1):
+        item = cleaned[i]
+        next_id = cleaned[i + 1]["id"]
+
+        if item["tipo"] == "Decisão":
+            sim_label = clean_label(item["sim"] or "Sim", 28)
+            nao_label = clean_label(item["nao"] or "Não", 28)
+            lines.append(f'{item["id"]} -> {next_id} [label="{sim_label}"];')
+
+            extra_id = f"nao_{extra_count}"
+            extra_count += 1
+            lines.append(
+                f'{extra_id} [label="{nao_label}", shape=note, fillcolor="#f8fafc", color="#94a3b8", style="filled,rounded,dashed"];'
+            )
+            lines.append(f'{item["id"]} -> {extra_id} [label="Não", style="dashed", color="#64748b"];')
+            lines.append(f'{extra_id} -> {next_id} [style="dashed", color="#94a3b8"];')
+        else:
+            lines.append(f'{item["id"]} -> {next_id};')
+
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def flow_to_df(steps: list[dict]) -> pd.DataFrame:
+    df = pd.DataFrame(steps)
+    for col in FLOW_COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+    df["ordem"] = pd.to_numeric(df["ordem"], errors="coerce").fillna(range(1, len(df)+1))
+    return df[FLOW_COLUMNS]
+
+
+def df_to_flow(df: pd.DataFrame) -> list[dict]:
+    df = df.copy().fillna("")
+    if "ordem" in df.columns:
+        df["ordem"] = pd.to_numeric(df["ordem"], errors="coerce")
+        df = df.sort_values("ordem", na_position="last")
+    steps = []
+    order = 1
+    for _, row in df.iterrows():
+        tipo = str(row.get("tipo", "") or "Processo")
+        texto = str(row.get("texto", "") or "").strip()
+        sim = str(row.get("sim", "") or "").strip()
+        nao = str(row.get("nao", "") or "").strip()
+        if not texto and not sim and not nao:
+            continue
+        steps.append({"ordem": order, "tipo": tipo, "texto": texto, "sim": sim, "nao": nao})
+        order += 1
+    return steps or default_flow()
 
 
 def page_sipoc(sipoc_df: pd.DataFrame):
-    st.subheader("SIPOC + Construtor de Fluxograma")
+    st.subheader("SIPOC + Fluxograma")
     st.markdown(
         """
-        <div class="hint-card">
-        <b>Uso em reunião:</b> primeiro preencha somente as 5 colunas do SIPOC.
-        Depois salve e escolha uma linha para montar o fluxograma com ícones tradicionais.
+        <div class="info-card">
+        <b>Como usar:</b> preencha a matriz com várias respostas já prontas, clique em <b>Atualizar / Salvar SIPOC</b>,
+        escolha a linha e monte o fluxograma como em um app de desenho de processo.
+        Linhas incompletas também aparecem no visual.
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    tab1, tab2 = st.tabs(["1. Matriz SIPOC", "2. Visual + Fluxograma"])
+    tab1, tab2 = st.tabs(["1. Matriz SIPOC", "2. Visual + construtor de fluxograma"])
 
     with tab1:
         st.markdown("### Matriz para preenchimento")
-        st.caption("Apenas as 5 colunas do SIPOC. Adicione quantas linhas precisar durante a reunião.")
+        st.caption("Somente as 5 colunas do SIPOC. Pode deixar campos vazios e completar durante a reunião.")
 
         editor_df = sipoc_df.copy()
         if editor_df.empty:
-            editor_df = pd.DataFrame([
-                {
-                    "fornecedores": "Comercial / Médico / Distribuidor",
-                    "entradas": "Relato de melhoria, reclamação, dúvida ou demanda de mercado",
-                    "processo": "Informação chega por WhatsApp, e-mail ou conversa e pode ficar dispersa",
-                    "saidas": "Entrada VOC estruturada e priorizada",
-                    "clientes": "Engenharia / Qualidade / Comercial",
-                }
-            ])
+            editor_df = default_sipoc()
 
         edited = st.data_editor(
             editor_df,
@@ -567,120 +617,95 @@ def page_sipoc(sipoc_df: pd.DataFrame):
                 "saidas": st.column_config.TextColumn("O — Output / Saída", width="large"),
                 "clientes": st.column_config.TextColumn("C — Customer / Cliente", width="medium"),
             },
-            key="sipoc_editor_somente_5_colunas",
+            key="sipoc_editor_5_colunas",
         )
 
-        c1, c2, c3 = st.columns([1, 1, 2])
-        with c1:
-            if st.button("Salvar SIPOC", type="primary"):
-                edited = edited.fillna("")
-                save_sipoc(edited[SIPOC_COLUMNS])
-                st.success("SIPOC salvo. Vá para a aba Visual + Fluxograma.")
-        with c2:
+        col1, col2, col3, col4 = st.columns([1.2, 1, 1.2, 2])
+        with col1:
+            if st.button("Atualizar / Salvar SIPOC", type="primary"):
+                save_sipoc(edited.fillna(""))
+                st.success("SIPOC atualizado.")
+                st.rerun()
+        with col2:
+            if st.button("Recarregar exemplos"):
+                save_sipoc(default_sipoc())
+                st.success("Exemplos recarregados.")
+                st.rerun()
+        with col3:
             if st.button("Limpar SIPOC"):
                 save_sipoc(pd.DataFrame(columns=SIPOC_COLUMNS))
-                st.success("SIPOC limpo. Atualize a página para reiniciar.")
-        with c3:
+                st.success("SIPOC limpo.")
+                st.rerun()
+        with col4:
             csv = edited.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
             st.download_button("Baixar SIPOC CSV", data=csv, file_name="sipoc.csv", mime="text/csv")
 
     with tab2:
-        visual_df = sipoc_df.copy()
+        visual_df = sipoc_df.copy().fillna("")
         if visual_df.empty:
-            st.info("Preencha e salve a matriz SIPOC na aba 1 para visualizar.")
-            return
+            visual_df = default_sipoc()
 
-        visual_df = visual_df.fillna("")
         labels = []
         for i, row in visual_df.iterrows():
-            entrada = str(row.get("entradas", "")).strip()
-            labels.append(f"{i+1}. {entrada[:80] if entrada else 'Linha SIPOC'}")
+            base = row.get("entradas") or row.get("fornecedores") or row.get("processo") or f"Linha {i+1}"
+            labels.append(f"{i+1}. {clean_label(base, 90)}")
 
         idx = st.selectbox("Escolha a linha SIPOC", list(range(len(labels))), format_func=lambda i: labels[i])
         row = visual_df.iloc[idx]
-        key = sipoc_key(row, idx)
 
-        render_sipoc_visual(row)
+        render_sipoc_cards(row)
 
         st.markdown("### Fluxograma do processo")
         flows = load_flows()
-        steps = get_flow_for_key(flows, key, row)
-        render_flowchart(steps)
+        key = sipoc_key(idx)
+        if key not in flows:
+            flows[key] = default_flow()
+            save_flows(flows)
 
-        st.markdown("### Ferramenta de construção")
-        st.caption("Clique em iniciar montagem para abrir o construtor. A seleção do tipo de tarefa define automaticamente o ícone do fluxograma.")
+        steps = flows.get(key, default_flow())
+        current_dot = make_flow_dot(steps)
 
-        if "builder_open" not in st.session_state:
-            st.session_state.builder_open = False
+        st.markdown("<div class='graph-box'>", unsafe_allow_html=True)
+        st.graphviz_chart(current_dot, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        colb1, colb2, colb3 = st.columns([1.2, 1, 2])
-        with colb1:
-            if st.button("Iniciar montagem", type="primary"):
-                st.session_state.builder_open = True
-        with colb2:
-            if st.button("Resetar fluxo"):
-                flows[key] = get_flow_for_key({}, key, row)
-                save_flows(flows)
-                st.success("Fluxo resetado.")
-                st.rerun()
+        with st.expander("Iniciar montagem / editar fluxograma", expanded=True):
+            st.caption("Selecione o tipo de tarefa. O formato do ícone muda automaticamente. Para decisão, preencha Sim e Não.")
 
-        if st.session_state.builder_open:
-            with st.container(border=True):
-                st.markdown("#### Montagem do fluxograma")
-                st.markdown("<span class='small-muted'>Adicione, edite, reordene ou remova etapas. Para decisões, preencha os caminhos de Sim e Não.</span>", unsafe_allow_html=True)
+            flow_df = flow_to_df(steps)
+            edited_flow = st.data_editor(
+                flow_df,
+                num_rows="dynamic",
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "ordem": st.column_config.NumberColumn("Ordem", min_value=1, step=1, width="small"),
+                    "tipo": st.column_config.SelectboxColumn("Tipo / ícone", options=FLOW_TYPES, required=True, width="medium"),
+                    "texto": st.column_config.TextColumn("Texto da etapa", width="large"),
+                    "sim": st.column_config.TextColumn("Se SIM", width="medium"),
+                    "nao": st.column_config.TextColumn("Se NÃO", width="medium"),
+                },
+                key=f"flow_editor_{idx}",
+            )
 
-                # Editor das etapas existentes
-                steps_df = pd.DataFrame(steps)
-                if steps_df.empty:
-                    steps_df = pd.DataFrame(columns=["tipo", "texto", "sim", "nao"])
-                if "tipo" not in steps_df.columns:
-                    steps_df["tipo"] = "Processo"
-                if "texto" not in steps_df.columns:
-                    steps_df["texto"] = ""
-                if "sim" not in steps_df.columns:
-                    steps_df["sim"] = ""
-                if "nao" not in steps_df.columns:
-                    steps_df["nao"] = ""
-
-                edited_steps = st.data_editor(
-                    steps_df[["tipo", "texto", "sim", "nao"]],
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    hide_index=False,
-                    column_config={
-                        "tipo": st.column_config.SelectboxColumn("Tipo de tarefa / ícone", options=list(FLOW_TYPES.keys()), required=True),
-                        "texto": st.column_config.TextColumn("Texto da etapa", width="large"),
-                        "sim": st.column_config.TextColumn("Caminho Sim", width="medium"),
-                        "nao": st.column_config.TextColumn("Caminho Não", width="medium"),
-                    },
-                    key=f"flow_editor_{key}",
-                )
-
-                ca, cb, cc = st.columns([1, 1, 2])
-                with ca:
-                    if st.button("Salvar fluxograma", type="primary"):
-                        new_steps = []
-                        for _, srow in edited_steps.fillna("").iterrows():
-                            tipo = srow.get("tipo", "Processo") or "Processo"
-                            texto = srow.get("texto", "") or FLOW_TYPES.get(tipo, FLOW_TYPES["Processo"])["default"]
-                            new_steps.append({
-                                "id": str(uuid.uuid4()),
-                                "tipo": tipo,
-                                "texto": texto,
-                                "sim": srow.get("sim", ""),
-                                "nao": srow.get("nao", ""),
-                            })
-                        flows[key] = new_steps
-                        save_flows(flows)
-                        st.success("Fluxograma salvo.")
-                        st.rerun()
-                with cb:
-                    if st.button("Fechar montagem"):
-                        st.session_state.builder_open = False
-                        st.rerun()
-                with cc:
-                    flow_json = json.dumps(steps, ensure_ascii=False, indent=2)
-                    st.download_button("Baixar fluxograma JSON", data=flow_json.encode("utf-8"), file_name="fluxograma.json", mime="application/json")
+            c1, c2, c3, c4 = st.columns([1.2, 1, 1.2, 2])
+            with c1:
+                if st.button("Atualizar fluxograma", type="primary"):
+                    flows[key] = df_to_flow(edited_flow)
+                    save_flows(flows)
+                    st.success("Fluxograma atualizado.")
+                    st.rerun()
+            with c2:
+                if st.button("Reiniciar fluxo"):
+                    flows[key] = default_flow()
+                    save_flows(flows)
+                    st.success("Fluxograma reiniciado.")
+                    st.rerun()
+            with c3:
+                flow_json = json.dumps(flows.get(key, default_flow()), ensure_ascii=False, indent=2)
+                st.download_button("Baixar JSON", data=flow_json.encode("utf-8"), file_name="fluxograma.json", mime="application/json")
+            with c4:
+                st.caption("Dica: altere a ordem para reorganizar as etapas. Linhas vazias são ignoradas ao atualizar.")
 
 
 def page_matriz(df: pd.DataFrame):
@@ -726,6 +751,7 @@ def main():
     render_header()
     df = load_data()
     sipoc_df = load_sipoc()
+
     menu = st.sidebar.radio(
         "Menu",
         [
