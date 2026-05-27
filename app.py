@@ -9,6 +9,7 @@ import plotly.express as px
 APP_TITLE = "Gemba Virtual VOC + Kaizen"
 DATA_DIR = Path("data")
 DATA_FILE = DATA_DIR / "gemba_registros.csv"
+SIPOC_FILE = DATA_DIR / "sipoc_registros.csv"
 
 COLUMNS = [
     "id_registro",
@@ -32,6 +33,19 @@ COLUMNS = [
     "observacoes",
     "pontuacao",
     "prioridade",
+]
+
+SIPOC_COLUMNS = [
+    "tema",
+    "supplier",
+    "input",
+    "processo_atual",
+    "output_esperado",
+    "customer",
+    "dor_atual",
+    "oportunidade_app",
+    "prioridade",
+    "responsavel",
 ]
 
 SETORES = [
@@ -64,12 +78,15 @@ FOCOS = [
 ]
 
 STATUS = ["Novo", "Em triagem", "Em análise", "Ação aberta", "Monitoramento", "Concluído", "Descartado"]
+PRIORIDADES = ["Baixa", "Média", "Alta"]
 
 
 def init_data_file() -> None:
     DATA_DIR.mkdir(exist_ok=True)
     if not DATA_FILE.exists():
         pd.DataFrame(columns=COLUMNS).to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+    if not SIPOC_FILE.exists():
+        pd.DataFrame(columns=SIPOC_COLUMNS).to_csv(SIPOC_FILE, index=False, encoding="utf-8-sig")
 
 
 def load_data() -> pd.DataFrame:
@@ -84,6 +101,20 @@ def load_data() -> pd.DataFrame:
 def save_data(df: pd.DataFrame) -> None:
     DATA_DIR.mkdir(exist_ok=True)
     df.to_csv(DATA_FILE, index=False, encoding="utf-8-sig")
+
+
+def load_sipoc() -> pd.DataFrame:
+    init_data_file()
+    df = pd.read_csv(SIPOC_FILE, encoding="utf-8-sig")
+    for col in SIPOC_COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+    return df[SIPOC_COLUMNS]
+
+
+def save_sipoc(df: pd.DataFrame) -> None:
+    DATA_DIR.mkdir(exist_ok=True)
+    df.to_csv(SIPOC_FILE, index=False, encoding="utf-8-sig")
 
 
 def gerar_id(df: pd.DataFrame) -> str:
@@ -120,8 +151,28 @@ def calcular_pontuacao(frequencia: str, impacto_cliente: str, impacto_eng: str, 
 
 def render_header():
     st.set_page_config(page_title=APP_TITLE, page_icon="📋", layout="wide")
+    st.markdown(
+        """
+        <style>
+        .block-container {padding-top: 1.5rem; padding-bottom: 1rem;}
+        .mini-card {
+            border-radius: 14px; padding: 14px 16px; color: #0f172a; min-height: 150px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08); border: 1px solid rgba(15,23,42,0.07);
+            margin-bottom: 12px;
+        }
+        .sipoc-s {background: #E8F1FF;}
+        .sipoc-i {background: #EAFBF3;}
+        .sipoc-p {background: #FFF7E8;}
+        .sipoc-o {background: #FBEAF4;}
+        .sipoc-c {background: #F1EBFF;}
+        .section-title {font-weight: 700; font-size: 1.0rem; margin-bottom: 8px;}
+        .small-text {font-size: 0.92rem; line-height: 1.3rem;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     st.title("📋 Gemba Virtual VOC + Kaizen")
-    st.caption("Aplicativo simples para registrar observações de Gemba, Voz do Cliente, oportunidades de melhoria e sinais de mercado.")
+    st.caption("Aplicativo para registrar observações de Gemba, Voz do Cliente, oportunidades de melhoria e mapear entradas com SIPOC interativo.")
 
 
 def page_novo_registro(df: pd.DataFrame):
@@ -283,6 +334,127 @@ def page_matriz(df: pd.DataFrame):
         st.dataframe(top[["id_registro", "tipo_entrada", "produto_linha", "prioridade", "pontuacao", "status", "descricao"]], use_container_width=True, hide_index=True)
 
 
+def page_sipoc(df_gemba: pd.DataFrame, sipoc_df: pd.DataFrame):
+    st.subheader("SIPOC Interativo")
+    st.caption("Use esta tela durante a reunião para mapear entradas da Voz do Cliente e transformar observações em estrutura de processo.")
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Linhas SIPOC", len(sipoc_df))
+    c2.metric("Fornecedores mapeados", sipoc_df["supplier"].replace("", pd.NA).dropna().nunique() if not sipoc_df.empty else 0)
+    c3.metric("Oportunidades registradas", sipoc_df["oportunidade_app"].replace("", pd.NA).dropna().shape[0] if not sipoc_df.empty else 0)
+
+    with st.expander("Sugestão de uso na reunião", expanded=False):
+        st.markdown(
+            """
+            1. Defina um **tema** da reunião, por exemplo: *Reclamações de produto*.
+            2. Preencha as colunas **Supplier, Input, Processo, Output e Customer**.
+            3. Registre a **dor atual** e a **oportunidade para o app**.
+            4. Ao final, salve e exporte o CSV.
+            """
+        )
+
+    tab1, tab2, tab3 = st.tabs(["Editor SIPOC", "Visual da reunião", "Gerar rascunho a partir do Gemba"])
+
+    with tab1:
+        st.markdown("#### Preenchimento colaborativo")
+        editor_df = sipoc_df.copy()
+        if editor_df.empty:
+            editor_df = pd.DataFrame([
+                {
+                    "tema": "Ex.: Sugestão de melhoria",
+                    "supplier": "Comercial",
+                    "input": "Sugestão recebida de médico",
+                    "processo_atual": "Chega por WhatsApp e fica disperso",
+                    "output_esperado": "Registro técnico estruturado",
+                    "customer": "Engenharia",
+                    "dor_atual": "Informação se perde",
+                    "oportunidade_app": "Criar entrada específica no app",
+                    "prioridade": "Alta",
+                    "responsavel": "Engenharia/Comercial",
+                }
+            ])
+
+        edited = st.data_editor(
+            editor_df,
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "tema": st.column_config.TextColumn("Tema", help="Assunto discutido na reunião"),
+                "supplier": st.column_config.TextColumn("Supplier"),
+                "input": st.column_config.TextColumn("Input"),
+                "processo_atual": st.column_config.TextColumn("Processo atual"),
+                "output_esperado": st.column_config.TextColumn("Output esperado"),
+                "customer": st.column_config.TextColumn("Customer"),
+                "dor_atual": st.column_config.TextColumn("Dor atual"),
+                "oportunidade_app": st.column_config.TextColumn("Oportunidade para o app"),
+                "prioridade": st.column_config.SelectboxColumn("Prioridade", options=PRIORIDADES),
+                "responsavel": st.column_config.TextColumn("Responsável"),
+            },
+            key="sipoc_editor"
+        )
+
+        csave, cclear = st.columns([1,1])
+        with csave:
+            if st.button("Salvar SIPOC", type="primary"):
+                edited = edited.fillna("")
+                save_sipoc(edited[SIPOC_COLUMNS])
+                st.success("Mapa SIPOC salvo com sucesso.")
+        with cclear:
+            if st.button("Limpar mapa SIPOC"):
+                vazio = pd.DataFrame(columns=SIPOC_COLUMNS)
+                save_sipoc(vazio)
+                st.success("Mapa SIPOC limpo. Atualize a página se quiser recomeçar do zero.")
+
+        csv = edited.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+        st.download_button("Baixar SIPOC em CSV", data=csv, file_name="sipoc_reuniao.csv", mime="text/csv")
+
+    with tab2:
+        st.markdown("#### Visual resumido")
+        visual_df = sipoc_df if not sipoc_df.empty else edited
+        visual_df = visual_df.fillna("")
+        if visual_df.empty:
+            st.info("Preencha o editor SIPOC para visualizar o mapa.")
+        else:
+            temas = [f"{i+1}. {t if str(t).strip() else 'Sem tema'}" for i, t in enumerate(visual_df["tema"].tolist())]
+            idx = st.selectbox("Escolha a linha SIPOC para destacar", range(len(temas)), format_func=lambda i: temas[i])
+            row = visual_df.iloc[idx]
+
+            cols = st.columns(5)
+            blocks = [
+                ("Supplier", row.get("supplier", ""), "sipoc-s"),
+                ("Input", row.get("input", ""), "sipoc-i"),
+                ("Process", row.get("processo_atual", ""), "sipoc-p"),
+                ("Output", row.get("output_esperado", ""), "sipoc-o"),
+                ("Customer", row.get("customer", ""), "sipoc-c"),
+            ]
+            for col, (title, text, css) in zip(cols, blocks):
+                col.markdown(
+                    f"<div class='mini-card {css}'><div class='section-title'>{title}</div><div class='small-text'>{text or '-'}</div></div>",
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown("#### Complementos")
+            c1, c2, c3 = st.columns(3)
+            c1.text_area("Dor atual", value=row.get("dor_atual", ""), height=140, disabled=True)
+            c2.text_area("Oportunidade para o app", value=row.get("oportunidade_app", ""), height=140, disabled=True)
+            c3.markdown(
+                f"**Prioridade:** {row.get('prioridade', '-') or '-'}  \n\n**Responsável:** {row.get('responsavel', '-') or '-'}  \n\n**Tema:** {row.get('tema', '-') or '-'}"
+            )
+
+    with tab3:
+        st.markdown("#### Criar um rascunho usando a base do Gemba")
+        if df_gemba.empty:
+            st.info("Ainda não há registros no Gemba para gerar sugestões.")
+        else:
+            base = df_gemba.copy()
+            base["supplier_sugerido"] = base["origem_informacao"].fillna("")
+            base["input_sugerido"] = base["tipo_entrada"].fillna("") + " | " + base["descricao"].fillna("").str[:70]
+            sugestao = base[["supplier_sugerido", "input_sugerido", "responsavel", "prioridade"]].head(12)
+            st.dataframe(sugestao, use_container_width=True, hide_index=True)
+            st.markdown("Use essas linhas como apoio para preencher o SIPOC na aba **Editor SIPOC**.")
+
+
 def page_roteiro():
     st.subheader("Roteiro de Gemba Walk VOC")
     st.markdown("""
@@ -308,12 +480,25 @@ Use este roteiro para investigar onde a Voz do Cliente aparece e quais entradas 
 def main():
     render_header()
     df = load_data()
-    menu = st.sidebar.radio("Menu", ["Novo registro", "Dashboard", "Matriz de priorização", "Roteiro Gemba", "Base completa"])
+    sipoc_df = load_sipoc()
+    menu = st.sidebar.radio(
+        "Menu",
+        [
+            "Novo registro",
+            "Dashboard",
+            "SIPOC Interativo",
+            "Matriz de priorização",
+            "Roteiro Gemba",
+            "Base completa",
+        ],
+    )
 
     if menu == "Novo registro":
         page_novo_registro(df)
     elif menu == "Dashboard":
         page_dashboard(df)
+    elif menu == "SIPOC Interativo":
+        page_sipoc(df, sipoc_df)
     elif menu == "Matriz de priorização":
         page_matriz(df)
     elif menu == "Roteiro Gemba":
