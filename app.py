@@ -556,10 +556,24 @@ def make_flow_dot(steps: list[dict]) -> str:
 
 def flow_to_df(steps: list[dict]) -> pd.DataFrame:
     df = pd.DataFrame(steps)
+
+    # Garante que a tabela sempre tenha as colunas esperadas,
+    # mesmo quando ainda não houver etapas cadastradas.
     for col in FLOW_COLUMNS:
         if col not in df.columns:
             df[col] = ""
-    df["ordem"] = pd.to_numeric(df["ordem"], errors="coerce").fillna(range(1, len(df)+1))
+
+    # Correção: pandas não aceita fillna(range(...)).
+    # Então criamos uma sequência simples de ordem linha a linha.
+    if df.empty:
+        df = pd.DataFrame(default_flow())
+
+    df["ordem"] = pd.to_numeric(df["ordem"], errors="coerce")
+    df["ordem"] = [
+        int(valor) if pd.notna(valor) and int(valor) > 0 else i + 1
+        for i, valor in enumerate(df["ordem"])
+    ]
+
     return df[FLOW_COLUMNS]
 
 
@@ -576,7 +590,8 @@ def df_to_flow(df: pd.DataFrame) -> list[dict]:
         sim = str(row.get("sim", "") or "").strip()
         nao = str(row.get("nao", "") or "").strip()
         if not texto and not sim and not nao:
-            continue
+            # Mantém a linha se o usuário escolheu um tipo, preenchendo texto padrão.
+            texto = tipo
         steps.append({"ordem": order, "tipo": tipo, "texto": texto, "sim": sim, "nao": nao})
         order += 1
     return steps or default_flow()
@@ -762,7 +777,6 @@ def main():
             "Roteiro Gemba",
             "Base completa",
         ],
-        
     )
 
     if menu == "Novo registro":
